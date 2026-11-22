@@ -7,6 +7,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "inline_bots/bot_attach_web_view.h"
 
+#include <QtCore/QUrl>
+
 #include "api/api_blocked_peers.h"
 #include "api/api_common.h"
 #include "api/api_sending.h"
@@ -109,6 +111,28 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace InlineBots {
 namespace {
+
+// Custom build: set TDESKTOP_MINIAPP_DEV=http://localhost:3000 to load every
+// mini app from a local dev server. Query and #fragment (which carries the
+// signed tgWebAppData) are preserved, so the app still gets valid initData.
+[[nodiscard]] QString ApplyMiniAppDevOverride(const QString &url) {
+	const auto dev = qEnvironmentVariable("TDESKTOP_MINIAPP_DEV");
+	if (dev.isEmpty()) {
+		return url;
+	}
+	const auto target = QUrl(dev);
+	auto result = QUrl(url);
+	if (!target.isValid() || target.host().isEmpty() || !result.isValid()) {
+		return url;
+	}
+	result.setScheme(target.scheme());
+	result.setHost(target.host());
+	result.setPort(target.port());
+	if (!target.path().isEmpty() && target.path() != u"/"_q) {
+		result.setPath(target.path());
+	}
+	return result.toString(QUrl::FullyEncoded);
+}
 
 constexpr auto kProlongTimeout = 60 * crl::time(1000);
 constexpr auto kRefreshBotsTimeout = 60 * 60 * crl::time(1000);
@@ -1502,9 +1526,9 @@ void WebViewInstance::show(ShowArgs &&args) {
 		|| (attached != end(bots)
 			&& (attached->inAttachMenu || attached->inMainMenu));
 	const auto downloads = &_session->attachWebView().downloads();
-	_panelUrl = args.result.url;
+	_panelUrl = ApplyMiniAppDevOverride(args.result.url);
 	_panel = Ui::BotWebView::Show({
-		.url = args.result.url,
+		.url = _panelUrl,
 		.storageId = _session->local().resolveStorageIdBots(),
 		.title = std::move(title),
 		.titleBadge = std::move(titleBadge),
